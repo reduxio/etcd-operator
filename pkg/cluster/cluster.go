@@ -83,6 +83,8 @@ type Cluster struct {
 	tlsConfig *tls.Config
 
 	eventsCli corev1.EventInterface
+
+	magellanK8sUtil *k8sutil.MagellanK8sUtil
 }
 
 func New(config Config, cl *api.EtcdCluster) *Cluster {
@@ -115,6 +117,8 @@ func New(config Config, cl *api.EtcdCluster) *Cluster {
 		}
 		c.run()
 	}()
+
+	c.magellanK8sUtil = k8sutil.New(config.KubeCli, cl)
 
 	return c
 }
@@ -374,10 +378,20 @@ func (c *Cluster) createPod(members etcdutil.MemberSet, m *etcdutil.Member, stat
 		if err != nil {
 			return fmt.Errorf("failed to create PVC for member (%s): %v", m.Name, err)
 		}
+
+		aff, err := c.magellanK8sUtil.CreateNodeAffinity(pvc.Name)
+		if err != nil {
+			c.logger.Errorf("failed to create node affinity for member (%s): %v", m.Name, err)
+			//return fmt.Errorf("failed to create node affinity for member (%s): %v", m.Name, err)
+		} else {
+			pod.Spec.Affinity = aff
+		}
+
 		k8sutil.AddEtcdVolumeToPod(pod, pvc)
 	} else {
 		k8sutil.AddEtcdVolumeToPod(pod, nil)
 	}
+
 	_, err := c.config.KubeCli.CoreV1().Pods(c.cluster.Namespace).Create(pod)
 	return err
 }
